@@ -1,0 +1,11 @@
+{
+  "name": "Résidence Ebla Two - Mansouria",
+  "description": "Plateforme web de gestion de l'Amicale Résidence Ebla Two à Mansouria (Mohammedia) : 162 appartements et 9 magasins, plans 2D/3D, travaux, trésorerie, réservations, espace adhérent et conseiller IA bilingue Darija/Français.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

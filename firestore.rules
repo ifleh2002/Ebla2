@@ -1,0 +1,230 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'ifleh2002@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Blueprints (Anti-Update-Gap)
+    function isValidLotInventoryItem(data) {
+      return data.keys().hasAll(['id', 'statut', 'prixAuM2', 'prixTotal', 'surfaceTotale', 'updatedByUid', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'statut', 'prixAuM2', 'prixTotal', 'surfaceTotale', 'updatedByUid', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.statut is string && data.statut.size() <= 32 && (data.statut == 'Disponible' || data.statut == 'Réservé' || data.statut == 'Affecté' || data.statut == 'Vendu') &&
+        data.prixAuM2 is number && data.prixAuM2 >= 0 && data.prixAuM2 <= 1000000 &&
+        data.prixTotal is number && data.prixTotal >= 0 && data.prixTotal <= 100000000 &&
+        data.surfaceTotale is number && data.surfaceTotale >= 1 && data.surfaceTotale <= 5000 &&
+        data.updatedByUid is string && data.updatedByUid.size() >= 1 && data.updatedByUid.size() <= 128 && data.updatedByUid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.updatedByUid == request.auth.uid &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidReservationRecord(data) {
+      return data.keys().hasAll([
+          'id', 'lotId', 'ownerId', 'nomClient', 'cin', 'telephone', 'email', 'modeFinancement', 'statut', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'lotId', 'ownerId', 'nomClient', 'cin', 'telephone', 'email', 'modeFinancement', 'statut', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.lotId is string && data.lotId.size() >= 1 && data.lotId.size() <= 64 && data.lotId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.nomClient is string && data.nomClient.size() >= 1 && data.nomClient.size() <= 120 &&
+        data.cin is string && data.cin.size() >= 1 && data.cin.size() <= 40 &&
+        data.telephone is string && data.telephone.size() >= 1 && data.telephone.size() <= 40 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.modeFinancement is string && data.modeFinancement.size() <= 64 &&
+        (data.modeFinancement == 'Echeancier Amicale (4 Tranches)' || data.modeFinancement == 'Comptant') &&
+        data.statut is string && data.statut.size() <= 32 &&
+        (data.statut == 'En attente' || data.statut == 'Validée' || data.statut == 'Refusée') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSiteVisitRecord(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'lotId', 'nomVisiteur', 'telephone', 'date', 'creneau', 'typeVisite', 'statut', 'calendarEventId', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'lotId', 'nomVisiteur', 'telephone', 'date', 'creneau', 'typeVisite', 'statut', 'calendarEventId', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.lotId is string && data.lotId.size() >= 1 && data.lotId.size() <= 64 && data.lotId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.nomVisiteur is string && data.nomVisiteur.size() >= 1 && data.nomVisiteur.size() <= 120 &&
+        data.telephone is string && data.telephone.size() >= 1 && data.telephone.size() <= 40 &&
+        data.date is string && data.date.size() >= 1 && data.date.size() <= 40 &&
+        data.creneau is string && data.creneau.size() >= 1 && data.creneau.size() <= 40 &&
+        data.typeVisite is string && data.typeVisite.size() <= 64 &&
+        (data.typeVisite == 'Sur place (Chantier Mansouria)' || data.typeVisite == 'Visioconférence WhatsApp 3D') &&
+        data.statut is string && data.statut.size() <= 32 &&
+        (data.statut == 'Confirmée' || data.statut == 'Effectuée' || data.statut == 'Annulée') &&
+        data.calendarEventId is string && data.calendarEventId.size() >= 1 && data.calendarEventId.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.createdAt is timestamp;
+    }
+
+    // 4. Collection: /lots/{lotId}
+    match /lots/{lotId} {
+      allow get: if isValidId(lotId);
+      allow list: if resource.data.prixTotal >= 0;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(lotId) &&
+        isValidLotInventoryItem(incoming()) &&
+        incoming().id == lotId &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().statut == 'Réservé');
+
+      allow update: if isVerifiedUser() &&
+        isValidId(lotId) &&
+        isValidLotInventoryItem(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (
+            existing().statut == 'Disponible' &&
+            incoming().statut == 'Réservé' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['statut', 'updatedByUid', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(lotId) && isAdmin();
+    }
+
+    // 5. Collection: /reservations/{reservationId} (PII Isolated)
+    match /reservations/{reservationId} {
+      allow get: if isVerifiedUser() &&
+        isValidId(reservationId) &&
+        (existing().ownerId == request.auth.uid || isAdmin());
+
+      allow list: if isVerifiedUser() &&
+        (resource.data.ownerId == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(reservationId) &&
+        isValidReservationRecord(incoming()) &&
+        incoming().id == reservationId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().statut == 'En attente' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(reservationId) &&
+        isValidReservationRecord(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().lotId == existing().lotId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid &&
+            existing().statut == 'En attente' &&
+            incoming().statut == 'En attente' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['telephone', 'modeFinancement', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(reservationId) && isAdmin();
+    }
+
+    // 6. Collection: /siteVisits/{visitId} (PII Isolated)
+    match /siteVisits/{visitId} {
+      allow get: if isVerifiedUser() &&
+        isValidId(visitId) &&
+        (existing().ownerId == request.auth.uid || isAdmin());
+
+      allow list: if isVerifiedUser() &&
+        (resource.data.ownerId == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(visitId) &&
+        isValidSiteVisitRecord(incoming()) &&
+        incoming().id == visitId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().statut == 'Confirmée' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(visitId) &&
+        isValidSiteVisitRecord(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().lotId == existing().lotId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid &&
+            existing().statut == 'Confirmée' &&
+            (incoming().statut == 'Confirmée' || incoming().statut == 'Annulée') &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['date', 'creneau', 'calendarEventId', 'statut', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(visitId) && isAdmin();
+    }
+
+    // 7. Collection: /admins/{adminUid}
+    match /admins/{adminUid} {
+      allow get: if isVerifiedUser() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow list: if isAdmin() && resource.data.uid != '';
+
+      allow create: if isValidId(adminUid) &&
+        isValidAdminRecord(incoming()) &&
+        incoming().uid == adminUid &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+
+      allow update: if isValidId(adminUid) &&
+        isValidAdminRecord(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['email']);
+
+      allow delete: if isValidId(adminUid) && isAdmin();
+    }
+  }
+}

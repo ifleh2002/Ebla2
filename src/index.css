@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  /* Palette Bleu Royal Impérial extraite du Logo Résidence Ebla Two */
+  --color-slate-50: #f7f9fc;
+  --color-slate-100: #eef2f8;
+  --color-slate-200: #dce4f0;
+  --color-slate-300: #b8c7dd;
+  --color-slate-400: #7890b2;
+  --color-slate-500: #4a658c;
+  --color-slate-600: #2a4875;
+  --color-slate-700: #15366b;
+  --color-slate-800: #0c254e;
+  --color-slate-900: #061836;
+  --color-slate-950: #030d1f;
+
+  /* Palette Or Impérial & Bronze Métallique extraite du Logo Résidence Ebla Two */
+  --color-amber-50: #fdf8ed;
+  --color-amber-100: #f8ecce;
+  --color-amber-200: #edd59b;
+  --color-amber-300: #e3bc68;
+  --color-amber-400: #d5a143;
+  --color-amber-500: #c58b2b;
+  --color-amber-600: #a8711b;
+  --color-amber-700: #895811;
+  --color-amber-800: #6e450d;
+  --color-amber-900: #54340a;
+  --color-amber-950: #2f1b04;
+}
+
+@layer base {
+  body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f7f9fc;
+    color: #061836;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+.font-serif-luxury {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.bg-ebla-navy-gradient {
+  background: linear-gradient(135deg, #041229 0%, #092147 55%, #0d2d5e 100%);
+}
+
+.bg-ebla-gold-gradient {
+  background: linear-gradient(135deg, #b3791d 0%, #d9a74a 50%, #9b6512 100%);
+}
+
+/* Custom subtle scrollbar in Royal Navy & Gold */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #eef2f8;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c58b2b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #092147;
+}
