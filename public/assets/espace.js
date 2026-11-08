@@ -14,8 +14,32 @@ const niveau = (e) => (e === 0 ? 'RDC' : `R+${e}`);
 const opts = (list, cur) => list.map((o) => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}"${String(v) === String(cur ?? '') ? ' selected' : ''}>${esc(l)}</option>`; }).join('');
 const STATUTS = ['Disponible', 'Réservé', 'Vendu', 'Bloqué'];
 const P_STATUTS = ['Nouveau', 'Contacté', 'Visite planifiée', 'Converti', 'Perdu'];
-const ROLES = [['admin', 'Administrateur'], ['commercial', 'Commercial'], ['adherent', 'Adhérent'], ['en_attente', 'En attente']];
+const ROLES = [['admin', 'Administrateur (président)'], ['bureau', 'Membre du bureau'], ['commercial', 'Commercial'], ['adherent', 'Adhérent'], ['en_attente', 'En attente']];
 const ROLE_LABEL = Object.fromEntries(ROLES);
+const FONCTIONS = [['president', 'Président'], ['vice_president', 'Vice-président'], ['tresorier', 'Trésorier'], ['vice_tresorier', 'Vice-trésorier'], ['conseiller', 'Conseiller']];
+const FONCTION_LABEL = Object.fromEntries(FONCTIONS);
+const COMPS = [
+  ['lots_voir', 'Voir tous les lots et leurs statuts'],
+  ['lots_modifier', 'Modifier statut et adhérent des lots'],
+  ['lots_surfaces', 'Modifier surfaces et typologies'],
+  ['prospects', 'Gérer prospects et visites'],
+  ['echeances_voir', 'Consulter les échéanciers'],
+  ['echeances_gerer', 'Gérer les échéanciers et paiements'],
+  ['documents_gerer', 'Gérer les documents'],
+  ['avancement_gerer', 'Mettre à jour l’avancement du chantier'],
+  ['utilisateurs_voir', 'Voir l’annuaire des membres'],
+];
+const COMP_LABEL = Object.fromEntries(COMPS);
+// Compétences proposées par défaut (le président peut les modifier)
+const DEFAULT_COMPS = {
+  vice_president: ['lots_voir', 'prospects', 'documents_gerer', 'avancement_gerer', 'echeances_voir', 'utilisateurs_voir'],
+  tresorier: ['echeances_gerer', 'echeances_voir', 'lots_voir', 'utilisateurs_voir'],
+  vice_tresorier: ['echeances_voir', 'lots_voir', 'utilisateurs_voir'],
+  conseiller: ['lots_voir', 'utilisateurs_voir'],
+  commercial: ['lots_voir', 'lots_modifier', 'prospects'],
+};
+const can = (c) => ME && (ME.role === 'admin' || (ME.competences || []).includes(c));
+const titre = (p) => (p.fonction ? FONCTION_LABEL[p.fonction] : ROLE_LABEL[p.role]);
 
 let ME = null; // profil
 let VIEW = null;
@@ -75,22 +99,29 @@ function renderForcePassword() {
 }
 
 /* ---------- Coquille ---------- */
-const MENUS = {
-  admin: [['dash', 'Tableau de bord'], ['lots', 'Lots'], ['prospects', 'Prospects'], ['visites', 'Visites'], ['users', 'Utilisateurs'], ['echeances', 'Échéanciers'], ['documents', 'Documents'], ['avancement', 'Avancement chantier'], ['compte', 'Mon compte']],
-  commercial: [['dash', 'Tableau de bord'], ['lots', 'Lots'], ['prospects', 'Prospects'], ['visites', 'Visites'], ['compte', 'Mon compte']],
-  adherent: [['monlot', 'Mon lot'], ['echeances', 'Mon échéancier'], ['documents', 'Mes documents'], ['avancement', 'Avancement chantier'], ['compte', 'Mon compte']],
-};
+function buildMenu() {
+  const m = [];
+  if (can('lots_voir')) m.push(['dash', 'Tableau de bord'], ['lots', 'Lots']);
+  if (can('prospects')) m.push(['prospects', 'Prospects'], ['visites', 'Visites']);
+  if (['adherent', 'bureau'].includes(ME.role)) m.push(['monlot', 'Mon lot'], ['mesecheances', 'Mon échéancier']);
+  if (can('echeances_voir') || can('echeances_gerer')) m.push(['echeances', 'Échéanciers']);
+  if (ME.role !== 'en_attente' || can('documents_gerer')) m.push(['documents', can('documents_gerer') ? 'Documents' : 'Mes documents']);
+  if (ME.role !== 'en_attente') m.push(['avancement', 'Avancement chantier'], ['bureau', 'Bureau exécutif']);
+  if (ME.role === 'admin' || can('utilisateurs_voir')) m.push(['users', ME.role === 'admin' ? 'Utilisateurs & compétences' : 'Annuaire']);
+  m.push(['compte', 'Mon compte']);
+  return m;
+}
 function renderApp() {
   $('#logout').hidden = false;
   if (ME.must_change_password) return renderForcePassword();
-  if (ME.role === 'en_attente' || !MENUS[ME.role]) {
+  const menu = buildMenu();
+  if (menu.length === 1) {
     root.innerHTML = `<div class="login"><h1 style="margin:0;font-size:22px">Compte en attente</h1><p class="muted" style="margin:0">Votre compte existe mais n'a pas encore de rôle. L'administration de l'Amicale doit l'activer.</p></div>`;
     return;
   }
-  const menu = MENUS[ME.role];
   if (!VIEW || !menu.some(([k]) => k === VIEW)) VIEW = menu[0][0];
   root.innerHTML = `<div class="app"><nav class="side" aria-label="Menu de l'espace">
-      <div class="who"><b>${esc(ME.full_name || ME.email)}</b><span>${esc(ROLE_LABEL[ME.role])}</span></div>
+      <div class="who"><b>${esc(ME.full_name || ME.email)}</b><span>${esc(titre(ME))}</span></div>
       ${menu.map(([k, l]) => `<button type="button" data-v="${k}" class="${k === VIEW ? 'on' : ''}" ${k === VIEW ? 'aria-current="page"' : ''}>${esc(l)}</button>`).join('')}
     </nav><div class="main" id="main"></div></div>`;
   $('.side').addEventListener('click', (e) => { const b = e.target.closest('button[data-v]'); if (b) { VIEW = b.dataset.v; renderApp(); } });
@@ -101,7 +132,7 @@ function renderApp() {
 
 /* ---------- Données partagées ---------- */
 async function profilesBy(roles) {
-  const { data, error } = await sb.from('profiles').select('id,full_name,email,phone,cin,role').in('role', roles).order('full_name');
+  const { data, error } = await sb.from('profiles').select('id,full_name,email,phone,cin,role,fonction,competences').in('role', roles).order('full_name');
   if (error) throw error; return data;
 }
 const nameOf = (list, id) => { const p = list.find((x) => x.id === id); return p ? (p.full_name || p.email) : ''; };
@@ -112,8 +143,8 @@ const VIEWS = {};
 VIEWS.dash = async (main) => {
   const [{ data: lots }, { data: pros }, { data: vis }] = await Promise.all([
     sb.from('lots').select('type,statut,surface_habitable'),
-    sb.from('prospects').select('statut,created_at'),
-    sb.from('visites').select('date_visite,statut,lot_id,prospects(nom,prenom,telephone)').gte('date_visite', new Date().toISOString()).eq('statut', 'Planifiée').order('date_visite').limit(8),
+    can('prospects') ? sb.from('prospects').select('statut,created_at') : Promise.resolve({ data: [] }),
+    !can('prospects') ? Promise.resolve({ data: [] }) : sb.from('visites').select('date_visite,statut,lot_id,prospects(nom,prenom,telephone)').gte('date_visite', new Date().toISOString()).eq('statut', 'Planifiée').order('date_visite').limit(8),
   ]);
   const c = (f) => lots.filter(f).length;
   const types = ['Appartement', 'Appartement RDC', 'Magasin'];
@@ -123,25 +154,26 @@ VIEWS.dash = async (main) => {
     <div class="stat"><b>${c((l) => l.statut === 'Disponible')}</b><span>disponibles</span></div>
     <div class="stat"><b>${c((l) => l.statut === 'Réservé')}</b><span>réservés</span></div>
     <div class="stat"><b>${c((l) => l.statut === 'Vendu')}</b><span>vendus</span></div>
-    <div class="stat"><b>${pros.filter((p) => p.statut === 'Nouveau').length}</b><span>nouveaux prospects</span></div>
+    ${can('prospects') ? `<div class="stat"><b>${pros.filter((p) => p.statut === 'Nouveau').length}</b><span>nouveaux prospects</span></div>` : ''}
   </div>
   <div class="panel"><h2>Par type de bien</h2><div class="tbl-box"><table><thead><tr><th>Type</th><th class="num">Total</th><th class="num">Disponibles</th><th class="num">Réservés</th><th class="num">Vendus</th><th class="num">Surface totale</th></tr></thead><tbody>
   ${types.map((t) => { const L = lots.filter((l) => l.type === t); return `<tr><td>${t}</td><td class="num">${L.length}</td><td class="num">${L.filter((l) => l.statut === 'Disponible').length}</td><td class="num">${L.filter((l) => l.statut === 'Réservé').length}</td><td class="num">${L.filter((l) => l.statut === 'Vendu').length}</td><td class="num">${m2(L.reduce((s, l) => s + (l.surface_habitable == null ? 0 : arrondi(l.surface_habitable)), 0))}</td></tr>`; }).join('')}
   </tbody></table></div></div>
-  <div class="panel"><h2>Prochaines visites</h2>${vis.length ? `<div class="tbl-box"><table><thead><tr><th>Date</th><th>Visiteur</th><th>Téléphone</th><th>Lot</th></tr></thead><tbody>${vis.map((v) => `<tr><td>${dtfr(v.date_visite)}</td><td>${esc(((v.prospects?.prenom || '') + ' ' + (v.prospects?.nom || '')).trim())}</td><td>${esc(v.prospects?.telephone)}</td><td>${esc(v.lot_id || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucune visite planifiée.</p>'}</div>`;
+  ${!can('prospects') ? '' : `<div class="panel"><h2>Prochaines visites</h2>`}${!can('prospects') ? '' : vis.length ? `<div class="tbl-box"><table><thead><tr><th>Date</th><th>Visiteur</th><th>Téléphone</th><th>Lot</th></tr></thead><tbody>${vis.map((v) => `<tr><td>${dtfr(v.date_visite)}</td><td>${esc(((v.prospects?.prenom || '') + ' ' + (v.prospects?.nom || '')).trim())}</td><td>${esc(v.prospects?.telephone)}</td><td>${esc(v.lot_id || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucune visite planifiée.</p>'}${can('prospects') ? '</div>' : ''}`;
 };
 
 VIEWS.lots = async (main) => {
-  const isAdmin = ME.role === 'admin';
-  const [{ data: lots, error }, adherents] = await Promise.all([sb.from('lots').select('*').order('ordre'), profilesBy(['adherent'])]);
+  const canMod = can('lots_modifier'), canSurf = can('lots_surfaces'), canSave = canMod || canSurf;
+  const dis = (ok) => (ok ? '' : ' disabled');
+  const [{ data: lots, error }, adherents] = await Promise.all([sb.from('lots').select('*').order('ordre'), profilesBy(['adherent', 'bureau'])]);
   if (error) throw error;
-  main.innerHTML = `<h1>Lots</h1><p class="muted">${isAdmin ? 'Modifiez statut, adhérent, typologie et surfaces, puis enregistrez la ligne.' : 'Mettez à jour le statut et l’adhérent de chaque lot.'}</p>
+  main.innerHTML = `<h1>Lots</h1><p class="muted">${canSave ? 'Modifiez les champs autorisés par vos compétences, puis enregistrez la ligne.' : 'Consultation seule : vos compétences ne permettent pas de modifier les lots.'}</p>
   <div class="panel"><div class="toolbar">
     <label class="field">Recherche<input id="q" placeholder="ex. B204"></label>
     <label class="field">Immeuble<select id="fb"><option value="">Tous</option>${opts(['A', 'B', 'C', 'D', 'E', 'F'])}</select></label>
     <label class="field">Type<select id="ft"><option value="">Tous</option>${opts(['Appartement', 'Appartement RDC', 'Magasin'])}</select></label>
     <label class="field">Statut<select id="fs"><option value="">Tous</option>${opts(STATUTS)}</select></label>
-    ${isAdmin ? '<button class="btn sm" type="button" id="exportCsv">Exporter CSV</button>' : ''}
+    <button class="btn sm" type="button" id="exportCsv">Exporter CSV</button>
   </div><div class="tbl-box" style="max-height:70vh"><table><thead><tr><th>Lot</th><th>Type</th><th>Niv.</th><th>Surface</th><th>Annexe</th><th>Typologie</th><th>Ch.</th><th>Statut</th><th>Adhérent</th><th>Notes</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></div>`;
   const adhOpts = (cur) => `<option value="">—</option>${adherents.map((a) => `<option value="${a.id}"${a.id === cur ? ' selected' : ''}>${esc(a.full_name || a.email)}</option>`).join('')}`;
   const draw = () => {
@@ -149,23 +181,23 @@ VIEWS.lots = async (main) => {
     const L = lots.filter((l) => (!q || l.id.includes(q)) && (!b || l.bloc === b) && (!t || l.type === t) && (!s || l.statut === s));
     $('#rows').innerHTML = L.map((l) => `<tr data-id="${esc(l.id)}">
       <td><b>${esc(l.id)}</b></td><td>${esc(l.type)}</td><td>${niveau(l.etage)}</td>
-      <td>${isAdmin ? `<input name="surface_habitable" type="number" step="0.01" value="${l.surface_habitable ?? ''}" style="width:90px" aria-label="Surface habitable ${esc(l.id)}"> <span class="small">${m2(l.surface_habitable)}</span>` : m2(l.surface_habitable)}</td>
-      <td>${isAdmin ? `<input name="surface_annexe" type="number" step="0.01" value="${l.surface_annexe ?? ''}" style="width:80px" aria-label="Surface annexe ${esc(l.id)}">` : (l.surface_annexe ? m2(l.surface_annexe) : '—')}</td>
-      <td><input name="typologie" value="${esc(l.typologie ?? '')}" style="width:110px" placeholder="F2, F3…" aria-label="Typologie ${esc(l.id)}"></td>
-      <td><input name="nb_chambres" type="number" min="0" value="${l.nb_chambres ?? ''}" style="width:56px" aria-label="Chambres ${esc(l.id)}"></td>
-      <td><select name="statut" aria-label="Statut ${esc(l.id)}">${opts(STATUTS, l.statut)}</select></td>
-      <td><select name="adherent_id" aria-label="Adhérent ${esc(l.id)}">${adhOpts(l.adherent_id)}</select></td>
-      <td><input name="notes" value="${esc(l.notes ?? '')}" style="width:160px" aria-label="Notes ${esc(l.id)}"></td>
-      <td><button class="btn sm" type="button" data-save>Enregistrer</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">Aucun lot.</td></tr>';
+      <td>${canSurf ? `<input name="surface_habitable" type="number" step="0.01" value="${l.surface_habitable ?? ''}" style="width:90px" aria-label="Surface habitable ${esc(l.id)}"> <span class="small">${m2(l.surface_habitable)}</span>` : m2(l.surface_habitable)}</td>
+      <td>${canSurf ? `<input name="surface_annexe" type="number" step="0.01" value="${l.surface_annexe ?? ''}" style="width:80px" aria-label="Surface annexe ${esc(l.id)}">` : (l.surface_annexe ? m2(l.surface_annexe) : '—')}</td>
+      <td><input name="typologie" value="${esc(l.typologie ?? '')}" style="width:110px" placeholder="F2, F3…"${dis(canSurf)} aria-label="Typologie ${esc(l.id)}"></td>
+      <td><input name="nb_chambres" type="number" min="0" value="${l.nb_chambres ?? ''}"${dis(canSurf)} style="width:56px" aria-label="Chambres ${esc(l.id)}"></td>
+      <td><select name="statut"${dis(canMod)} aria-label="Statut ${esc(l.id)}">${opts(STATUTS, l.statut)}</select></td>
+      <td><select name="adherent_id"${dis(canMod)} aria-label="Adhérent ${esc(l.id)}">${adhOpts(l.adherent_id)}</select></td>
+      <td><input name="notes" value="${esc(l.notes ?? '')}"${dis(canMod)} style="width:160px" aria-label="Notes ${esc(l.id)}"></td>
+      <td>${canSave ? '<button class="btn sm" type="button" data-save>Enregistrer</button>' : ''}</td></tr>`).join('') || '<tr><td colspan="11" class="muted">Aucun lot.</td></tr>';
   };
   ['#q', '#fb', '#ft', '#fs'].forEach((s) => $(s).addEventListener('input', draw));
   draw();
   $('#rows').addEventListener('click', async (e) => {
     if (!e.target.matches('[data-save]')) return;
     const tr = e.target.closest('tr'); const id = tr.dataset.id; const u = {};
-    tr.querySelectorAll('input,select').forEach((el) => { let v = el.value.trim(); if (['surface_habitable', 'surface_annexe', 'nb_chambres'].includes(el.name)) v = v === '' ? null : Number(v); else if (v === '') v = null; u[el.name] = v; });
-    if (u.statut === 'Disponible') u.adherent_id = null;
-    if (u.statut === 'Réservé' && !lots.find((l) => l.id === id).date_reservation) u.date_reservation = new Date().toISOString().slice(0, 10);
+    tr.querySelectorAll('input:not([disabled]),select:not([disabled])').forEach((el) => { let v = el.value.trim(); if (['surface_habitable', 'surface_annexe', 'nb_chambres'].includes(el.name)) v = v === '' ? null : Number(v); else if (v === '') v = null; u[el.name] = v; });
+    if (canMod && u.statut === 'Disponible') u.adherent_id = null;
+    if (canMod && u.statut === 'Réservé' && !lots.find((l) => l.id === id).date_reservation) u.date_reservation = new Date().toISOString().slice(0, 10);
     const { error: err } = await sb.from('lots').update(u).eq('id', id);
     if (err) return toast(err.message, false);
     Object.assign(lots.find((l) => l.id === id), u); toast(`Lot ${id} enregistré.`);
@@ -181,7 +213,7 @@ VIEWS.lots = async (main) => {
 
 VIEWS.prospects = async (main) => {
   const [{ data: pros, error }, staff, { data: lots }] = await Promise.all([
-    sb.from('prospects').select('*').order('created_at', { ascending: false }), profilesBy(['admin', 'commercial']), sb.from('lots').select('id,statut').order('ordre')]);
+    sb.from('prospects').select('*').order('created_at', { ascending: false }), profilesBy(['admin', 'commercial', 'bureau']), sb.from('lots').select('id,statut').order('ordre')]);
   if (error) throw error;
   main.innerHTML = `<h1>Prospects</h1><p class="muted">Demandes reçues par le formulaire du site et contacts ajoutés par l'équipe.</p>
   <div class="panel"><div class="toolbar"><label class="field">Statut<select id="fs"><option value="">Tous</option>${opts(P_STATUTS)}</select></label>
@@ -243,7 +275,7 @@ VIEWS.prospects = async (main) => {
 };
 
 VIEWS.visites = async (main) => {
-  const [{ data: vis, error }, staff] = await Promise.all([sb.from('visites').select('*,prospects(nom,prenom,telephone)').order('date_visite', { ascending: false }), profilesBy(['admin', 'commercial'])]);
+  const [{ data: vis, error }, staff] = await Promise.all([sb.from('visites').select('*,prospects(nom,prenom,telephone)').order('date_visite', { ascending: false }), profilesBy(['admin', 'commercial', 'bureau'])]);
   if (error) throw error;
   main.innerHTML = `<h1>Visites</h1><div class="panel"><div class="tbl-box" style="max-height:72vh"><table><thead><tr><th>Date</th><th>Visiteur</th><th>Téléphone</th><th>Lot</th><th>Type</th><th>Commercial</th><th>Statut</th><th>Notes</th></tr></thead><tbody id="rows">
   ${vis.map((v) => `<tr data-id="${v.id}"><td>${dtfr(v.date_visite)}</td><td>${esc(((v.prospects?.prenom || '') + ' ' + (v.prospects?.nom || '')).trim())}</td><td>${esc(v.prospects?.telephone || '')}</td><td>${esc(v.lot_id || '—')}</td><td>${esc(v.type_visite || '')}</td><td>${esc(nameOf(staff, v.commercial_id))}</td>
@@ -256,28 +288,59 @@ VIEWS.visites = async (main) => {
 };
 
 VIEWS.users = async (main) => {
+  const admin = ME.role === 'admin';
   const { data: users, error } = await sb.from('profiles').select('*').order('created_at');
   if (error) throw error;
-  main.innerHTML = `<h1>Utilisateurs</h1><p class="muted">Créez les comptes des commerciaux et des adhérents. Communiquez-leur le mot de passe provisoire : ils devront le changer à la première connexion.</p>
+  const order = (u) => (u.fonction ? FONCTIONS.findIndex(([f]) => f === u.fonction) : 9);
+  users.sort((a, b) => order(a) - order(b) || String(a.full_name).localeCompare(String(b.full_name)));
+  const chips = (u) => (u.role === 'admin' ? '<span class="chip">Toutes les compétences</span>' : (u.competences || []).map((c) => `<span class="chip" title="${esc(COMP_LABEL[c] || c)}">${esc(COMP_LABEL[c] || c)}</span>`).join(' ') || '<span class="muted">Aucune</span>');
+  const fonctionOpts = (cur) => `<option value="">—</option>${opts(FONCTIONS, cur)}`;
+  const compBoxes = (sel) => COMPS.map(([k, l]) => `<label class="check" style="color:var(--ink)"><input type="checkbox" name="comp" value="${k}"${sel.includes(k) ? ' checked' : ''}>${esc(l)}</label>`).join('');
+  if (!admin) {
+    main.innerHTML = `<h1>Annuaire</h1><div class="panel"><div class="tbl-box"><table><thead><tr><th>Nom</th><th>Fonction / rôle</th><th>Téléphone</th><th>E-mail</th></tr></thead><tbody>
+    ${users.map((u) => `<tr><td><b>${esc(u.full_name || '—')}</b></td><td>${esc(titre(u))}</td><td>${esc(u.phone || '')}</td><td>${esc(u.email)}</td></tr>`).join('')}</tbody></table></div></div>`;
+    return;
+  }
+  main.innerHTML = `<h1>Utilisateurs &amp; compétences</h1><p class="muted">En tant que président, vous créez les comptes, attribuez les fonctions du bureau et choisissez les compétences de chaque utilisateur.</p>
   <div class="panel"><div class="toolbar"><button class="btn sm" type="button" id="addU">Créer un compte</button></div>
-  <div class="tbl-box"><table><thead><tr><th>Nom</th><th>E-mail</th><th>Téléphone</th><th>CIN</th><th>Rôle</th><th>Créé le</th><th></th></tr></thead><tbody id="rows">
+  <div class="tbl-box"><table><thead><tr><th>Nom</th><th>E-mail</th><th>Téléphone</th><th>CIN</th><th>Rôle</th><th>Fonction au bureau</th><th>Compétences</th><th></th></tr></thead><tbody id="rows">
   ${users.map((u) => `<tr data-id="${u.id}"><td><input name="full_name" value="${esc(u.full_name || '')}" aria-label="Nom"></td><td>${esc(u.email)}</td>
-    <td><input name="phone" value="${esc(u.phone || '')}" style="width:140px" aria-label="Téléphone"></td><td><input name="cin" value="${esc(u.cin || '')}" style="width:100px" aria-label="CIN"></td>
-    <td><select name="role" aria-label="Rôle" ${u.id === ME.id ? 'disabled' : ''}>${opts(ROLES, u.role)}</select></td><td>${dfr(u.created_at)}</td>
-    <td style="display:flex;gap:6px"><button class="btn sm" type="button" data-save>Enregistrer</button><button class="btn ghost sm" type="button" data-reset>Mot de passe</button>${u.id === ME.id ? '' : '<button class="btn ghost sm" type="button" data-del>Suppr.</button>'}</td></tr>`).join('')}
+    <td><input name="phone" value="${esc(u.phone || '')}" style="width:130px" aria-label="Téléphone"></td><td><input name="cin" value="${esc(u.cin || '')}" style="width:90px" aria-label="CIN"></td>
+    <td><select name="role" aria-label="Rôle"${u.id === ME.id ? ' disabled' : ''}>${opts(ROLES, u.role)}</select></td>
+    <td><select name="fonction" aria-label="Fonction">${fonctionOpts(u.fonction)}</select></td>
+    <td style="white-space:normal;min-width:240px">${chips(u)} ${u.role === 'admin' ? '' : '<button class="linkbtn" type="button" data-comp style="min-height:30px">Modifier</button>'}</td>
+    <td style="display:flex;gap:6px"><button class="btn sm" type="button" data-save>Enregistrer</button><button class="btn ghost sm" type="button" data-mail>E-mail</button><button class="btn ghost sm" type="button" data-reset>Mot de passe</button>${u.id === ME.id ? '' : '<button class="btn ghost sm" type="button" data-del>Suppr.</button>'}</td></tr>`).join('')}
   </tbody></table></div></div>`;
   const call = async (body) => { const { data, error: err } = await sb.functions.invoke('admin-users', { body }); if (err) { let m = err.message; try { m = (await err.context.json()).error || m; } catch {} throw new Error(m); } return data; };
+  const dbErr = (err) => (String(err.message || err).includes('profiles_fonction_unique') ? 'Ce poste du bureau est déjà occupé par un autre membre.' : (err.message || String(err)));
   $('#rows').addEventListener('click', async (e) => {
     const tr = e.target.closest('tr'); if (!tr) return; const id = tr.dataset.id; const u = users.find((x) => x.id === id);
     try {
       if (e.target.matches('[data-save]')) {
         const upd = {}; tr.querySelectorAll('input,select:not([disabled])').forEach((el) => { upd[el.name] = el.value.trim() || null; });
-        if (!upd.role) delete upd.role;
-        const { error: err } = await sb.from('profiles').update(upd).eq('id', id); if (err) throw err; toast('Utilisateur enregistré.');
+        const { error: err } = await sb.from('profiles').update(upd).eq('id', id); if (err) throw new Error(dbErr(err));
+        Object.assign(u, upd); toast('Utilisateur enregistré.');
+      }
+      if (e.target.matches('[data-comp]')) {
+        openModal(`<h2 id="modalTitle" style="margin:0">Compétences — ${esc(u.full_name || u.email)}</h2><p class="muted" style="margin:0">${esc(titre(u))}</p>
+          <form id="cf" style="display:flex;flex-direction:column;gap:10px">${compBoxes(u.competences || [])}
+          ${u.fonction && DEFAULT_COMPS[u.fonction] ? '<button class="linkbtn" type="button" id="preset" style="align-self:flex-start">Appliquer les compétences proposées pour cette fonction</button>' : ''}
+          <div style="display:flex;gap:10px;margin-top:6px"><button class="btn" type="submit">Enregistrer</button><button class="btn ghost" type="button" data-close>Annuler</button></div></form>`);
+        const pr = $('#preset'); if (pr) pr.onclick = () => $('#cf').querySelectorAll('input[name=comp]').forEach((c) => { c.checked = DEFAULT_COMPS[u.fonction].includes(c.value); });
+        $('#cf').addEventListener('submit', async (ev) => {
+          ev.preventDefault(); const comps = [...ev.currentTarget.querySelectorAll('input[name=comp]:checked')].map((c) => c.value);
+          const { error: err } = await sb.from('profiles').update({ competences: comps }).eq('id', id); if (err) return toast(err.message, false);
+          u.competences = comps; closeModal(); toast('Compétences mises à jour.'); renderApp();
+        });
+      }
+      if (e.target.matches('[data-mail]')) {
+        const email = prompt(`Nouvelle adresse e-mail de connexion pour ${u.full_name || u.email} :`, u.email);
+        if (!email || email === u.email) return;
+        await call({ action: 'update_email', user_id: id, email }); toast('Adresse e-mail modifiée.'); renderApp();
       }
       if (e.target.matches('[data-reset]')) {
         const pw = genPassword();
-        if (!confirm(`Réinitialiser le mot de passe de ${u.email} ?\nNouveau mot de passe provisoire : ${pw}`)) return;
+        if (!confirm(`Réinitialiser le mot de passe de ${u.email} ?`)) return;
         await call({ action: 'reset_password', user_id: id, password: pw });
         openModal(`<h2 id="modalTitle" style="margin:0">Mot de passe réinitialisé</h2><p>Communiquez à <b>${esc(u.email)}</b> ce mot de passe provisoire :</p><p style="font-size:22px;font-weight:800;font-family:monospace">${esc(pw)}</p><button class="btn" type="button" data-close>Fermer</button>`);
       }
@@ -293,43 +356,57 @@ VIEWS.users = async (main) => {
       <label class="field">Nom complet<input name="full_name" required></label><label class="field">E-mail<input name="email" type="email" required></label>
       <label class="field">Téléphone<input name="phone"></label><label class="field">CIN<input name="cin"></label>
       <label class="field">Rôle<select name="role">${opts(ROLES.filter(([r]) => r !== 'en_attente'), 'adherent')}</select></label>
-      <label class="field">Mot de passe provisoire<input name="password" value="${pw}" minlength="8" required></label>
+      <label class="field">Fonction au bureau<select name="fonction">${fonctionOpts('')}</select></label>
+      <fieldset class="full" style="border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:8px"><legend class="small" style="font-weight:800">COMPÉTENCES</legend>${compBoxes([])}</fieldset>
+      <label class="field full">Mot de passe provisoire<input name="password" value="${pw}" minlength="8" required></label>
       <div class="full" id="ufMsg" role="status"></div>
       <div class="full" style="display:flex;gap:10px"><button class="btn" type="submit">Créer</button><button class="btn ghost" type="button" data-close>Annuler</button></div></form>`);
-    $('#uf').addEventListener('submit', async (ev) => {
-      ev.preventDefault(); const body = Object.fromEntries(new FormData(ev.currentTarget)); const b = ev.currentTarget.querySelector('button[type=submit]'); b.disabled = true;
+    const f = $('#uf');
+    const preset = () => { const key = f.fonction.value || f.role.value; const d = DEFAULT_COMPS[key]; if (d) f.querySelectorAll('input[name=comp]').forEach((c) => { c.checked = d.includes(c.value); }); };
+    f.fonction.addEventListener('change', () => { if (f.fonction.value && f.role.value === 'adherent') f.role.value = 'bureau'; preset(); });
+    f.role.addEventListener('change', preset);
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault(); const fd = new FormData(f); const b = f.querySelector('button[type=submit]'); b.disabled = true;
+      const body = { action: 'create', full_name: fd.get('full_name'), email: fd.get('email'), phone: fd.get('phone'), cin: fd.get('cin'), role: fd.get('role'), fonction: fd.get('fonction'), password: fd.get('password'), competences: fd.getAll('comp') };
       try {
-        await call({ action: 'create', ...body });
-        openModal(`<h2 id="modalTitle" style="margin:0">Compte créé</h2><p>Transmettez ces identifiants à <b>${esc(body.full_name)}</b> :</p><p>Adresse : <b>${location.origin}/espace.html</b><br>E-mail : <b>${esc(body.email)}</b><br>Mot de passe provisoire : <b style="font-family:monospace">${esc(body.password)}</b></p><button class="btn" type="button" data-close>Fermer</button>`);
-        VIEW = 'users'; const keep = $('#modalBox').innerHTML; renderApp(); openModal(keep);
+        await call(body);
+        const done = `<h2 id="modalTitle" style="margin:0">Compte créé</h2><p>Transmettez ces identifiants à <b>${esc(body.full_name)}</b> :</p><p>Adresse : <b>${location.origin}/espace.html</b><br>E-mail : <b>${esc(body.email)}</b><br>Mot de passe provisoire : <b style="font-family:monospace">${esc(body.password)}</b></p><button class="btn" type="button" data-close>Fermer</button>`;
+        renderApp(); openModal(done);
       } catch (err) { b.disabled = false; $('#ufMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
     });
   });
 };
 
+VIEWS.mesecheances = async (main) => {
+  const { data, error } = await sb.from('echeances').select('*').eq('adherent_id', ME.id).order('date_echeance');
+  if (error) throw error;
+  const tot = data.reduce((s, x) => s + Number(x.montant), 0), paye = data.filter((x) => x.statut === 'Payé').reduce((s, x) => s + Number(x.montant), 0);
+  main.innerHTML = `<h1>Mon échéancier</h1><div class="grid2" style="margin-top:20px"><div class="stat"><b>${dh(tot)}</b><span>total programmé</span></div><div class="stat"><b>${dh(paye)}</b><span>déjà réglé</span></div><div class="stat"><b>${dh(tot - paye)}</b><span>reste à régler</span></div></div>
+  <div class="panel"><div class="tbl-box"><table><thead><tr><th>Échéance</th><th>Lot</th><th class="num">Montant</th><th>Date prévue</th><th>Payé le</th><th>Statut</th></tr></thead><tbody>
+  ${data.map((x) => `<tr><td>${esc(x.libelle)}</td><td>${esc(x.lot_id || '—')}</td><td class="num">${dh(x.montant)}</td><td>${dfr(x.date_echeance)}</td><td>${dfr(x.date_paiement)}</td><td>${esc(x.statut)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Aucune échéance enregistrée pour le moment.</td></tr>'}</tbody></table></div></div>`;
+};
+
 VIEWS.echeances = async (main) => {
-  if (ME.role === 'adherent') {
-    const { data, error } = await sb.from('echeances').select('*').eq('adherent_id', ME.id).order('date_echeance');
-    if (error) throw error;
-    const tot = data.reduce((s, x) => s + Number(x.montant), 0), paye = data.filter((x) => x.statut === 'Payé').reduce((s, x) => s + Number(x.montant), 0);
-    main.innerHTML = `<h1>Mon échéancier</h1><div class="grid2" style="margin-top:20px"><div class="stat"><b>${dh(tot)}</b><span>total programmé</span></div><div class="stat"><b>${dh(paye)}</b><span>déjà réglé</span></div><div class="stat"><b>${dh(tot - paye)}</b><span>reste à régler</span></div></div>
-    <div class="panel"><div class="tbl-box"><table><thead><tr><th>Échéance</th><th>Lot</th><th class="num">Montant</th><th>Date prévue</th><th>Payé le</th><th>Statut</th></tr></thead><tbody>
-    ${data.map((x) => `<tr><td>${esc(x.libelle)}</td><td>${esc(x.lot_id || '—')}</td><td class="num">${dh(x.montant)}</td><td>${dfr(x.date_echeance)}</td><td>${dfr(x.date_paiement)}</td><td>${esc(x.statut)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Aucune échéance enregistrée pour le moment.</td></tr>'}</tbody></table></div></div>`;
-    return;
-  }
-  const adherents = await profilesBy(['adherent']);
+  const gere = can('echeances_gerer');
+  const adherents = await profilesBy(['adherent', 'bureau']);
+  const { data: all } = await sb.from('echeances').select('adherent_id,montant,statut');
   const { data: lots } = await sb.from('lots').select('id,adherent_id');
-  main.innerHTML = `<h1>Échéanciers</h1><div class="panel"><div class="toolbar"><label class="field">Adhérent<select id="sa"><option value="">Choisir…</option>${adherents.map((a) => `<option value="${a.id}">${esc(a.full_name || a.email)}</option>`).join('')}</select></label></div><div id="ech"><p class="muted">${adherents.length ? 'Choisissez un adhérent.' : 'Créez d’abord des comptes adhérents dans « Utilisateurs ».'}</p></div></div>`;
+  const sum = (f) => (all || []).filter(f).reduce((s, x) => s + Number(x.montant), 0);
+  main.innerHTML = `<h1>Échéanciers</h1><p class="muted">${gere ? 'Saisissez les échéances et enregistrez les paiements.' : 'Consultation seule.'}</p>
+  <div class="grid2" style="margin-top:16px"><div class="stat"><b>${dh(sum(() => true))}</b><span>total programmé</span></div><div class="stat"><b>${dh(sum((x) => x.statut === 'Payé'))}</b><span>encaissé</span></div><div class="stat"><b>${dh(sum((x) => x.statut === 'En retard'))}</b><span>en retard</span></div></div>
+  <div class="panel"><div class="toolbar"><label class="field">Adhérent<select id="sa"><option value="">Choisir…</option>${adherents.map((a) => `<option value="${a.id}">${esc(a.full_name || a.email)}</option>`).join('')}</select></label></div><div id="ech"><p class="muted">${adherents.length ? 'Choisissez un adhérent.' : 'Aucun adhérent pour le moment.'}</p></div></div>`;
   const load = async () => {
     const aid = $('#sa').value; if (!aid) return;
     const { data } = await sb.from('echeances').select('*').eq('adherent_id', aid).order('date_echeance');
     const myLots = lots.filter((l) => l.adherent_id === aid).map((l) => l.id);
+    const ro = gere ? '' : ' disabled';
     $('#ech').innerHTML = `<div class="tbl-box"><table><thead><tr><th>Libellé</th><th>Lot</th><th class="num">Montant</th><th>Date prévue</th><th>Payé le</th><th>Statut</th><th></th></tr></thead><tbody id="er">
       ${data.map((x) => `<tr data-id="${x.id}"><td>${esc(x.libelle)}</td><td>${esc(x.lot_id || '—')}</td><td class="num">${dh(x.montant)}</td><td>${dfr(x.date_echeance)}</td>
-      <td><input type="date" name="date_paiement" value="${x.date_paiement || ''}" aria-label="Date de paiement"></td><td><select name="statut" aria-label="Statut">${opts(['À payer', 'Payé', 'En retard'], x.statut)}</select></td><td><button class="btn ghost sm" type="button" data-del>Suppr.</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">Aucune échéance.</td></tr>'}</tbody></table></div>
-      <form class="form" id="ef" style="margin-top:18px"><label class="field">Libellé<input name="libelle" required placeholder="Tranche 1 — réservation"></label><label class="field">Montant (DH)<input name="montant" type="number" step="0.01" min="0" required></label>
+      <td><input type="date" name="date_paiement" value="${x.date_paiement || ''}"${ro} aria-label="Date de paiement"></td><td><select name="statut"${ro} aria-label="Statut">${opts(['À payer', 'Payé', 'En retard'], x.statut)}</select></td><td>${gere ? '<button class="btn ghost sm" type="button" data-del>Suppr.</button>' : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Aucune échéance.</td></tr>'}</tbody></table></div>
+      ${gere ? `<form class="form" id="ef" style="margin-top:18px"><label class="field">Libellé<input name="libelle" required placeholder="Tranche 1 — réservation"></label><label class="field">Montant (DH)<input name="montant" type="number" step="0.01" min="0" required></label>
       <label class="field">Date prévue<input name="date_echeance" type="date"></label><label class="field">Lot<select name="lot_id"><option value="">—</option>${opts(myLots)}</select></label>
-      <div class="full"><button class="btn" type="submit">Ajouter l'échéance</button></div></form>`;
+      <div class="full"><button class="btn" type="submit">Ajouter l'échéance</button></div></form>` : ''}`;
+    if (!gere) return;
     $('#er').addEventListener('change', async (e) => { const id = e.target.closest('tr').dataset.id; const { error: err } = await sb.from('echeances').update({ [e.target.name]: e.target.value || null }).eq('id', id); toast(err ? err.message : 'Échéance mise à jour.', !err); });
     $('#er').addEventListener('click', async (e) => { if (!e.target.matches('[data-del]') || !confirm('Supprimer cette échéance ?')) return; const { error: err } = await sb.from('echeances').delete().eq('id', e.target.closest('tr').dataset.id); if (err) return toast(err.message, false); load(); });
     $('#ef').addEventListener('submit', async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); const { error: err } = await sb.from('echeances').insert({ adherent_id: aid, libelle: fd.get('libelle'), montant: Number(fd.get('montant')), date_echeance: fd.get('date_echeance') || null, lot_id: fd.get('lot_id') || null }); if (err) return toast(err.message, false); toast('Échéance ajoutée.'); load(); });
@@ -337,11 +414,21 @@ VIEWS.echeances = async (main) => {
   $('#sa').addEventListener('input', load);
 };
 
+VIEWS.bureau = async (main) => {
+  const { data, error } = await sb.rpc('bureau_membres');
+  if (error) throw error;
+  main.innerHTML = `<h1>Bureau exécutif</h1><p class="muted">Membres du bureau de l'Amicale Résidence Ebla Two.</p>
+  <div class="cards" style="margin-top:20px">${FONCTIONS.map(([f, label]) => {
+    const ms = data.filter((m) => m.fonction === f);
+    return (ms.length ? ms : [null]).map((m) => `<div class="card"><h4>${esc(label)}</h4>${m ? `<b>${esc(m.full_name || '—')}</b>${m.phone ? `<a href="tel:${esc(m.phone.replace(/\s/g, ''))}">${esc(m.phone)}</a>` : ''}<a href="mailto:${esc(m.email)}">${esc(m.email)}</a>` : '<span class="muted">Poste à pourvoir</span>'}</div>`).join('');
+  }).join('')}</div>`;
+};
+
 VIEWS.documents = async (main) => {
-  const isAdmin = ME.role === 'admin';
+  const isAdmin = can('documents_gerer');
   const { data: docs, error } = await sb.from('documents').select('*').order('created_at', { ascending: false });
   if (error) throw error;
-  const adherents = isAdmin ? await profilesBy(['adherent']) : [];
+  const adherents = isAdmin ? await profilesBy(['adherent', 'bureau']) : [];
   main.innerHTML = `<h1>${isAdmin ? 'Documents' : 'Mes documents'}</h1>
   ${isAdmin ? `<div class="panel"><h2>Déposer un document</h2><form class="form" id="df">
     <label class="field">Titre<input name="titre" required></label><label class="field">Catégorie<select name="categorie">${opts(['Contrat', 'Reçu de paiement', 'Plan', 'Procès-verbal', 'Courrier', 'Autre'])}</select></label>
@@ -377,7 +464,7 @@ VIEWS.documents = async (main) => {
 };
 
 VIEWS.avancement = async (main) => {
-  const isAdmin = ME.role === 'admin';
+  const isAdmin = can('avancement_gerer');
   const { data, error } = await sb.from('avancement').select('*').order('bloc').order('ordre');
   if (error) throw error;
   main.innerHTML = `<h1>Avancement du chantier</h1><p class="muted">${isAdmin ? 'Ces informations sont publiées sur le site public, section « État d’avancement ».' : 'Suivi des travaux par immeuble.'}</p>
@@ -411,7 +498,8 @@ VIEWS.monlot = async (main) => {
 VIEWS.compte = async (main) => {
   main.innerHTML = `<h1>Mon compte</h1><div class="panel"><form class="form" id="cf">
     <label class="field">Nom complet<input name="full_name" value="${esc(ME.full_name || '')}"></label><label class="field">Téléphone<input name="phone" value="${esc(ME.phone || '')}"></label>
-    <label class="field">E-mail<input value="${esc(ME.email)}" disabled></label><label class="field">Rôle<input value="${esc(ROLE_LABEL[ME.role])}" disabled></label>
+    <label class="field">E-mail<input value="${esc(ME.email)}" disabled></label><label class="field">Fonction / rôle<input value="${esc(titre(ME))}" disabled></label>
+    <p class="full small" style="margin:0">Compétences : ${ME.role === 'admin' ? 'toutes (président)' : ((ME.competences || []).map((c) => COMP_LABEL[c]).join(' · ') || 'aucune')}</p>
     <div class="full"><button class="btn" type="submit">Enregistrer</button></div></form></div>
     <div class="panel"><h2>Changer de mot de passe</h2><form class="form" id="pf"><label class="field">Nouveau mot de passe<input name="p" type="password" minlength="8" required autocomplete="new-password"></label><div class="full"><button class="btn" type="submit">Mettre à jour</button></div></form></div>`;
   $('#cf').addEventListener('submit', async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); const u = { full_name: fd.get('full_name'), phone: fd.get('phone') }; const { error } = await sb.from('profiles').update(u).eq('id', ME.id); if (error) return toast(error.message, false); Object.assign(ME, u); toast('Profil enregistré.'); });
