@@ -4,7 +4,9 @@ import { SUPABASE_URL, SUPABASE_KEY, CONTACTS } from './config.js';
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const m2 = (v) => (v == null ? '—' : Number(v).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m²');
+// Arrondi des surfaces : partie décimale > 0,50 → m² supérieur ; sinon m² inférieur.
+const arrondi = (v) => { const n = Number(v); const e = Math.floor(n); return Math.round((n - e) * 100) > 50 ? e + 1 : e; };
+const m2 = (v) => (v == null ? '—' : arrondi(v).toLocaleString('fr-FR') + ' m²');
 const niveau = (e) => (e === 0 ? 'RDC' : `${e}${e === 1 ? 'er' : 'e'} étage`);
 
 /* Lire la suite */
@@ -67,21 +69,19 @@ $('#vidTabs').addEventListener('click', (e) => { const b = e.target.closest('but
 /* Lots */
 let LOTS = [];
 function renderLots() {
-  const b = $('#fBloc').value, t = $('#fType').value, s = $('#fStatut').value, min = Number($('#fMin').value || 0);
-  const rows = LOTS.filter((l) => (!b || l.bloc === b) && (!t || l.type === t) && (!s || l.statut === s) && (!min || (l.surface_habitable ?? 0) >= min));
-  const count = (st) => rows.filter((l) => l.statut === st).length;
-  $('#lotSum').innerHTML = `<span class="chip">${rows.length} lots</span><span class="chip">${count('Disponible')} disponibles</span><span class="chip">${count('Réservé')} réservés</span><span class="chip">${count('Vendu')} vendus</span>`;
-  $('#lotRows').innerHTML = rows.length ? rows.map((l) => `<tr><td><b>${esc(l.id)}</b></td><td>${esc(l.type)}</td><td>${esc(l.bloc)}</td><td>${niveau(l.etage)}</td><td class="num">${m2(l.surface_habitable)}</td><td class="num">${l.surface_annexe ? m2(l.surface_annexe) : '—'}</td><td><span class="st ${esc(l.statut)}">${esc(l.statut)}</span></td></tr>`).join('')
-    : '<tr><td colspan="7" class="muted">Aucun lot ne correspond à ces critères.</td></tr>';
+  const b = $('#fBloc').value, t = $('#fType').value, min = Number($('#fMin').value || 0);
+  const rows = LOTS.filter((l) => (!b || l.bloc === b) && (!t || l.type === t) && (!min || arrondi(l.surface_habitable ?? 0) >= min));
+  const n = (ty) => rows.filter((l) => l.type === ty).length;
+  $('#lotSum').innerHTML = `<span class="chip">${rows.length} lots disponibles</span><span class="chip">${n('Appartement') + n('Appartement RDC')} appartements</span><span class="chip">${n('Magasin')} magasins</span>`;
+  $('#lotRows').innerHTML = rows.length ? rows.map((l) => `<tr><td><b>${esc(l.id)}</b></td><td>${esc(l.type)}</td><td>${esc(l.bloc)}</td><td>${niveau(l.etage)}</td><td class="num">${m2(l.surface_habitable)}</td><td class="num">${l.surface_annexe ? m2(l.surface_annexe) : '—'}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="muted">Aucun lot disponible ne correspond à ces critères.</td></tr>';
 }
-['#fBloc', '#fType', '#fStatut', '#fMin'].forEach((s) => $(s).addEventListener('input', renderLots));
+['#fBloc', '#fType', '#fMin'].forEach((s) => $(s).addEventListener('input', renderLots));
 (async () => {
-  const { data, error } = await sb.from('lots').select('id,type,bloc,etage,surface_habitable,surface_annexe,statut,ordre').order('ordre');
-  if (error) { $('#lotRows').innerHTML = '<tr><td colspan="7">Impossible de charger les lots pour le moment.</td></tr>'; return; }
+  // La base ne renvoie au public que les lots « Disponible ».
+  const { data, error } = await sb.from('lots').select('id,type,bloc,etage,surface_habitable,surface_annexe,ordre').order('ordre');
+  if (error) { $('#lotRows').innerHTML = '<tr><td colspan="6">Impossible de charger les lots pour le moment.</td></tr>'; return; }
   LOTS = data; renderLots();
-  const k = $('#kpis');
-  k.querySelector('[data-k=logements]').textContent = data.filter((l) => l.type !== 'Magasin').length;
-  k.querySelector('[data-k=magasins]').textContent = data.filter((l) => l.type === 'Magasin').length;
 })();
 
 /* Avancement */

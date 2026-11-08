@@ -4,7 +4,9 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const m2 = (v) => (v == null ? '—' : Number(v).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m²');
+// Arrondi des surfaces : partie décimale > 0,50 → m² supérieur ; sinon m² inférieur.
+const arrondi = (v) => { const n = Number(v); const e = Math.floor(n); return Math.round((n - e) * 100) > 50 ? e + 1 : e; };
+const m2 = (v) => (v == null ? '—' : arrondi(v).toLocaleString('fr-FR') + ' m²');
 const dh = (v) => Number(v || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' DH';
 const dfr = (d) => (d ? new Date(d).toLocaleDateString('fr-FR') : '—');
 const dtfr = (d) => (d ? new Date(d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -124,7 +126,7 @@ VIEWS.dash = async (main) => {
     <div class="stat"><b>${pros.filter((p) => p.statut === 'Nouveau').length}</b><span>nouveaux prospects</span></div>
   </div>
   <div class="panel"><h2>Par type de bien</h2><div class="tbl-box"><table><thead><tr><th>Type</th><th class="num">Total</th><th class="num">Disponibles</th><th class="num">Réservés</th><th class="num">Vendus</th><th class="num">Surface totale</th></tr></thead><tbody>
-  ${types.map((t) => { const L = lots.filter((l) => l.type === t); return `<tr><td>${t}</td><td class="num">${L.length}</td><td class="num">${L.filter((l) => l.statut === 'Disponible').length}</td><td class="num">${L.filter((l) => l.statut === 'Réservé').length}</td><td class="num">${L.filter((l) => l.statut === 'Vendu').length}</td><td class="num">${m2(L.reduce((s, l) => s + Number(l.surface_habitable || 0), 0))}</td></tr>`; }).join('')}
+  ${types.map((t) => { const L = lots.filter((l) => l.type === t); return `<tr><td>${t}</td><td class="num">${L.length}</td><td class="num">${L.filter((l) => l.statut === 'Disponible').length}</td><td class="num">${L.filter((l) => l.statut === 'Réservé').length}</td><td class="num">${L.filter((l) => l.statut === 'Vendu').length}</td><td class="num">${m2(L.reduce((s, l) => s + (l.surface_habitable == null ? 0 : arrondi(l.surface_habitable)), 0))}</td></tr>`; }).join('')}
   </tbody></table></div></div>
   <div class="panel"><h2>Prochaines visites</h2>${vis.length ? `<div class="tbl-box"><table><thead><tr><th>Date</th><th>Visiteur</th><th>Téléphone</th><th>Lot</th></tr></thead><tbody>${vis.map((v) => `<tr><td>${dtfr(v.date_visite)}</td><td>${esc(((v.prospects?.prenom || '') + ' ' + (v.prospects?.nom || '')).trim())}</td><td>${esc(v.prospects?.telephone)}</td><td>${esc(v.lot_id || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucune visite planifiée.</p>'}</div>`;
 };
@@ -147,7 +149,7 @@ VIEWS.lots = async (main) => {
     const L = lots.filter((l) => (!q || l.id.includes(q)) && (!b || l.bloc === b) && (!t || l.type === t) && (!s || l.statut === s));
     $('#rows').innerHTML = L.map((l) => `<tr data-id="${esc(l.id)}">
       <td><b>${esc(l.id)}</b></td><td>${esc(l.type)}</td><td>${niveau(l.etage)}</td>
-      <td>${isAdmin ? `<input name="surface_habitable" type="number" step="0.01" value="${l.surface_habitable ?? ''}" style="width:90px" aria-label="Surface habitable ${esc(l.id)}">` : m2(l.surface_habitable)}</td>
+      <td>${isAdmin ? `<input name="surface_habitable" type="number" step="0.01" value="${l.surface_habitable ?? ''}" style="width:90px" aria-label="Surface habitable ${esc(l.id)}"> <span class="small">${m2(l.surface_habitable)}</span>` : m2(l.surface_habitable)}</td>
       <td>${isAdmin ? `<input name="surface_annexe" type="number" step="0.01" value="${l.surface_annexe ?? ''}" style="width:80px" aria-label="Surface annexe ${esc(l.id)}">` : (l.surface_annexe ? m2(l.surface_annexe) : '—')}</td>
       <td><input name="typologie" value="${esc(l.typologie ?? '')}" style="width:110px" placeholder="F2, F3…" aria-label="Typologie ${esc(l.id)}"></td>
       <td><input name="nb_chambres" type="number" min="0" value="${l.nb_chambres ?? ''}" style="width:56px" aria-label="Chambres ${esc(l.id)}"></td>
