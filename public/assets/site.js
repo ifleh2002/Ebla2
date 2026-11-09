@@ -69,14 +69,18 @@ $('#vidTabs').addEventListener('click', (e) => { const b = e.target.closest('but
 /* Lots */
 let LOTS = [];
 function renderLots() {
-  const b = $('#fBloc').value, t = $('#fType').value, min = Number($('#fMin').value || 0);
-  const rows = LOTS.filter((l) => (!b || l.bloc === b) && (!t || l.type === t) && (!min || arrondi(l.surface_habitable ?? 0) >= min));
+  const b = $('#fBloc').value, t = $('#fType').value;
+  const min = $('#fMin').value === '' ? null : Number($('#fMin').value), max = $('#fMax').value === '' ? null : Number($('#fMax').value);
+  const surf = (l) => (l.surface_habitable == null ? null : arrondi(l.surface_habitable));
+  const rows = LOTS.filter((l) => (!b || l.bloc === b) && (!t || l.type === t)
+    && (min == null || (surf(l) != null && surf(l) >= min)) && (max == null || (surf(l) != null && surf(l) <= max)));
   const n = (ty) => rows.filter((l) => l.type === ty).length;
   $('#lotSum').innerHTML = `<span class="chip">${rows.length} lots disponibles</span><span class="chip">${n('Appartement') + n('Appartement RDC')} appartements</span><span class="chip">${n('Magasin')} magasins</span>`;
   $('#lotRows').innerHTML = rows.length ? rows.map((l) => `<tr><td><b>${esc(l.id)}</b></td><td>${esc(l.type)}</td><td>${esc(l.bloc)}</td><td>${niveau(l.etage)}</td><td class="num">${m2(l.surface_habitable)}</td><td class="num">${l.surface_annexe ? m2(l.surface_annexe) : '—'}</td></tr>`).join('')
     : '<tr><td colspan="6" class="muted">Aucun lot disponible ne correspond à ces critères.</td></tr>';
 }
-['#fBloc', '#fType', '#fMin'].forEach((s) => $(s).addEventListener('input', renderLots));
+['#fBloc', '#fType', '#fMin', '#fMax'].forEach((s) => $(s).addEventListener('input', renderLots));
+$('#fReset').addEventListener('click', () => { ['#fBloc', '#fType', '#fMin', '#fMax'].forEach((s) => { $(s).value = ''; }); renderLots(); });
 (async () => {
   // La base ne renvoie au public que les lots « Disponible ».
   const { data, error } = await sb.from('lots').select('id,type,bloc,etage,surface_habitable,surface_annexe,ordre').order('ordre');

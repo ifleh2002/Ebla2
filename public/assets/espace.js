@@ -173,12 +173,17 @@ VIEWS.lots = async (main) => {
     <label class="field">Immeuble<select id="fb"><option value="">Tous</option>${opts(['A', 'B', 'C', 'D', 'E', 'F'])}</select></label>
     <label class="field">Type<select id="ft"><option value="">Tous</option>${opts(['Appartement', 'Appartement RDC', 'Magasin'])}</select></label>
     <label class="field">Statut<select id="fs"><option value="">Tous</option>${opts(STATUTS)}</select></label>
+    <label class="field">Surface min.<input id="smin" type="number" min="0" step="5" style="width:100px" placeholder="m²"></label>
+    <label class="field">Surface max.<input id="smax" type="number" min="0" step="5" style="width:100px" placeholder="m²"></label>
     <button class="btn sm" type="button" id="exportCsv">Exporter CSV</button>
   </div><div class="tbl-box" style="max-height:70vh"><table><thead><tr><th>Lot</th><th>Type</th><th>Niv.</th><th>Surface</th><th>Annexe</th><th>Typologie</th><th>Ch.</th><th>Statut</th><th>Adhérent</th><th>Notes</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></div>`;
   const adhOpts = (cur) => `<option value="">—</option>${adherents.map((a) => `<option value="${a.id}"${a.id === cur ? ' selected' : ''}>${esc(a.full_name || a.email)}</option>`).join('')}`;
   const draw = () => {
     const q = $('#q').value.trim().toUpperCase(), b = $('#fb').value, t = $('#ft').value, s = $('#fs').value;
-    const L = lots.filter((l) => (!q || l.id.includes(q)) && (!b || l.bloc === b) && (!t || l.type === t) && (!s || l.statut === s));
+    const mn = $('#smin').value === '' ? null : Number($('#smin').value), mx = $('#smax').value === '' ? null : Number($('#smax').value);
+    const sf = (l) => (l.surface_habitable == null ? null : arrondi(l.surface_habitable));
+    const L = lots.filter((l) => (!q || l.id.includes(q)) && (!b || l.bloc === b) && (!t || l.type === t) && (!s || l.statut === s)
+      && (mn == null || (sf(l) != null && sf(l) >= mn)) && (mx == null || (sf(l) != null && sf(l) <= mx)));
     $('#rows').innerHTML = L.map((l) => `<tr data-id="${esc(l.id)}">
       <td><b>${esc(l.id)}</b></td><td>${esc(l.type)}</td><td>${niveau(l.etage)}</td>
       <td>${canSurf ? `<input name="surface_habitable" type="number" step="0.01" value="${l.surface_habitable ?? ''}" style="width:90px" aria-label="Surface habitable ${esc(l.id)}"> <span class="small">${m2(l.surface_habitable)}</span>` : m2(l.surface_habitable)}</td>
@@ -190,7 +195,7 @@ VIEWS.lots = async (main) => {
       <td><input name="notes" value="${esc(l.notes ?? '')}"${dis(canMod)} style="width:160px" aria-label="Notes ${esc(l.id)}"></td>
       <td>${canSave ? '<button class="btn sm" type="button" data-save>Enregistrer</button>' : ''}</td></tr>`).join('') || '<tr><td colspan="11" class="muted">Aucun lot.</td></tr>';
   };
-  ['#q', '#fb', '#ft', '#fs'].forEach((s) => $(s).addEventListener('input', draw));
+  ['#q', '#fb', '#ft', '#fs', '#smin', '#smax'].forEach((s) => $(s).addEventListener('input', draw));
   draw();
   $('#rows').addEventListener('click', async (e) => {
     if (!e.target.matches('[data-save]')) return;
