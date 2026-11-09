@@ -91,15 +91,33 @@ function renderLots() {
   $('#avStep').innerHTML = data.map((a) => `<div class="step"><span class="small"><b>Immeuble ${esc(a.bloc)}</b> · mis à jour le ${a.date_maj ? new Date(a.date_maj).toLocaleDateString('fr-FR') : '—'}</span><b style="font-size:18px">${esc(a.etape)}</b><div class="bar" role="progressbar" aria-valuenow="${a.taux}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(a.etape)}"><i style="width:${Number(a.taux)}%"></i></div><span class="small">${Number(a.taux)} %${a.commentaire ? ' — ' + esc(a.commentaire) : ''}</span></div>`).join('');
 })();
 
-/* Contacts & carte */
+/* Contacts & carte — nom et téléphone du président lus dans la base */
 const C = CONTACTS;
-$('#contactCards').innerHTML = `
-  <div class="card"><h4>${esc(C.commercial.fonction)}</h4><b>${esc(C.commercial.nom)}</b><a href="tel:${esc(C.commercial.tel.replace(/\s/g, ''))}">${esc(C.commercial.tel)}</a><a href="mailto:${esc(C.commercial.email)}">${esc(C.commercial.email)}</a></div>
-  <div class="card"><h4>${esc(C.bureau.fonction)}</h4><b>${esc(C.bureau.nom)}</b><a href="mailto:${esc(C.bureau.email)}">${esc(C.bureau.email)}</a></div>
-  <div class="card"><h4>Adresse du projet</h4><span>${esc(C.adresse)}</span></div>`;
+const telHref = (t) => 'tel:+' + String(t).replace(/\D/g, '');
+const waHref = (t) => 'https://wa.me/' + String(t).replace(/\D/g, '');
+const ico = {
+  user: '<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/>',
+  tel: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  pin: '<path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+};
+const svg = (k) => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A6400" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ico[k]}</svg>`;
+function renderContacts(pres) {
+  const nom = pres?.full_name || C.president.nom;
+  const tel = pres?.phone || C.president.tel;
+  $('#contactCards').innerHTML = `
+    <div class="card">${svg('user')}<h4>Président du bureau exécutif</h4><b>${esc(nom)}</b><span class="muted">Amicale Résidence Ebla Two</span></div>
+    <div class="card">${svg('tel')}<h4>Téléphone / WhatsApp</h4><a href="${telHref(tel)}"><b>${esc(tel)}</b></a><a href="${waHref(tel)}" target="_blank" rel="noopener">Écrire sur WhatsApp</a></div>
+    <div class="card">${svg('mail')}<h4>E-mail</h4><a href="mailto:${esc(C.email)}"><b>${esc(C.email)}</b></a></div>
+    <div class="card">${svg('web')}<h4>Site web</h4><a href="https://${esc(C.site)}"><b>${esc(C.site)}</b></a></div>
+    <div class="card" style="grid-column:1/-1">${svg('pin')}<h4>Adresse du projet</h4><span>${esc(C.adresse)}</span></div>`;
+  $('#ftrTel').innerHTML = `<a href="${telHref(tel)}">${esc(tel)}</a> · <a href="mailto:${esc(C.email)}">${esc(C.email)}</a> · <a href="https://${esc(C.site)}">${esc(C.site)}</a>`;
+}
+renderContacts(null);
+sb.rpc('contact_president').then(({ data }) => { if (data && data[0]) renderContacts(data[0]); });
 $('#ftrAddr').textContent = C.adresse;
-$('#ftrTel').innerHTML = `<a href="tel:${esc(C.commercial.tel.replace(/\s/g, ''))}">${esc(C.commercial.tel)}</a> · <a href="mailto:${esc(C.commercial.email)}">${esc(C.commercial.email)}</a>`;
-$('#map').src = `https://maps.google.com/maps?q=${encodeURIComponent(C.mapsQuery)}&z=15&output=embed`;
+$('#map').src = C.mapEmbed;
 
 /* Formulaire */
 $('#leadForm').addEventListener('submit', async (e) => {
